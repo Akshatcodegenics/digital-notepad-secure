@@ -12,23 +12,37 @@ interface Note {
   updated_at: string;
 }
 
-export const useNotes = () => {
+export const useNotes = (searchQuery: string = '', currentPage: number = 1, itemsPerPage: number = 12) => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
   const { user } = useAuth();
 
   const fetchNotes = async () => {
     if (!user) return;
 
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('notes')
-        .select('*')
+        .select('*', { count: 'exact' })
         .order('updated_at', { ascending: false });
+
+      // Add search filter if query exists
+      if (searchQuery.trim()) {
+        query = query.or(`title.ilike.%${searchQuery}%,content.ilike.%${searchQuery}%`);
+      }
+
+      // Add pagination
+      const from = (currentPage - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+      query = query.range(from, to);
+
+      const { data, error, count } = await query;
 
       if (error) throw error;
 
       setNotes(data || []);
+      setTotalCount(count || 0);
     } catch (error: any) {
       console.error('Error fetching notes:', error);
       toast({
@@ -59,10 +73,12 @@ export const useNotes = () => {
 
       if (error) throw error;
 
-      setNotes(prev => [data, ...prev]);
+      // Refresh notes to maintain pagination
+      await fetchNotes();
       toast({
         title: "Success",
-        description: "Note created successfully"
+        description: "Note created successfully",
+        className: "bg-green-50 border-green-200"
       });
       return true;
     } catch (error: any) {
@@ -98,7 +114,8 @@ export const useNotes = () => {
       ));
       toast({
         title: "Success",
-        description: "Note updated successfully"
+        description: "Note updated successfully",
+        className: "bg-green-50 border-green-200"
       });
       return true;
     } catch (error: any) {
@@ -123,10 +140,12 @@ export const useNotes = () => {
 
       if (error) throw error;
 
-      setNotes(prev => prev.filter(note => note.id !== noteId));
+      // Refresh notes to maintain pagination
+      await fetchNotes();
       toast({
         title: "Success",
-        description: "Note deleted successfully"
+        description: "Note deleted successfully",
+        className: "bg-green-50 border-green-200"
       });
       return true;
     } catch (error: any) {
@@ -142,11 +161,16 @@ export const useNotes = () => {
 
   useEffect(() => {
     fetchNotes();
-  }, [user]);
+  }, [user, searchQuery, currentPage]);
+
+  const totalPages = Math.ceil(totalCount / itemsPerPage);
 
   return {
     notes,
     loading,
+    totalCount,
+    totalPages,
+    currentPage,
     createNote,
     updateNote,
     deleteNote,
